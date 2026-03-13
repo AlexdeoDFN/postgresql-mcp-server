@@ -15,20 +15,25 @@ import { zodToJsonSchema } from 'zod-to-json-schema';
 import type { PostgresTool, ToolOutput } from './types/tool.js';
 import { DatabaseConnection } from './utils/connection.js';
 
-// Import all tool implementations
+// Import tool implementations
+// MODIFIED by DirectFN: Analysis/read tools + safe script execution only.
+// Raw mutation tools (insert, update, delete) remain excluded.
+// pg_execute_script has built-in SQL validation (blocks DROP, TRUNCATE, etc.).
 import { analyzeDatabaseTool } from './tools/analyze.js';
-import { manageFunctionsTool, manageRLSTool } from './tools/functions.js';
+import { getFunctionsTool } from './tools/functions.js';
+import { getRLSPoliciesTool } from './tools/functions.js';
 import { debugDatabaseTool } from './tools/debug.js';
-import { exportTableDataTool, importTableDataTool, copyBetweenDatabasesTool } from './tools/migration.js';
 import { monitorDatabaseTool } from './tools/monitor.js';
-import { manageSchemaTools } from './tools/schema.js';
-import { manageTriggersTools } from './tools/triggers.js';
-import { manageIndexesTool } from './tools/indexes.js';
-import { manageQueryTool } from './tools/query.js';
-import { manageUsersTool } from './tools/users.js';
-import { manageConstraintsTool } from './tools/constraints.js';
-import { executeQueryTool, executeMutationTool, executeSqlTool } from './tools/data.js';
+import { getSchemaInfoTool } from './tools/schema.js';
+import { getTriggersTool } from './tools/triggers.js';
+import { getIndexesTool, analyzeIndexUsageTool } from './tools/indexes.js';
+import { getConstraintsTool } from './tools/constraints.js';
+import { executeQueryTool } from './tools/data.js';
 import { manageCommentsTool } from './tools/comments.js';
+import { explainQueryTool, getSlowQueriesTool, getQueryStatsTool } from './tools/performance.js';
+import { getEnumsTool } from './tools/enums.js';
+import { listUsersTool, getUserPermissionsTool } from './tools/users.js';
+import { executeScriptTool } from './tools/execute-script.js';
 
 // Initialize commander
 program
@@ -219,41 +224,54 @@ class PostgreSQLServer {
 }
 
 /**
- * All available PostgreSQL MCP tools
- * Organized by category for maintainability
+ * DirectFN PostgreSQL MCP Tools
+ *
+ * MODIFIED: Read/analysis tools + safe script execution only.
+ * Raw mutation tools (insert, update, delete, import, export, copy,
+ * reset) remain excluded.
+ *
+ * pg_execute_script is the ONLY write tool — it has built-in SQL
+ * validation that blocks DROP, TRUNCATE, DELETE, UPDATE, RENAME.
+ * Only additive DDL (CREATE IF NOT EXISTS, ADD COLUMN, etc.) is allowed.
+ * Supports dry-run mode (BEGIN/ROLLBACK) for testing scripts.
+ *
+ * Production is intentionally NOT configured as an MCP server entry.
+ * Production scripts must be executed via psql through Bash.
  */
 const allTools: PostgresTool[] = [
   // Core Analysis & Debugging
   analyzeDatabaseTool,
   debugDatabaseTool,
-  
-  // Schema & Structure Management (Meta-Tools)
-  manageSchemaTools,
-  manageFunctionsTool,
-  manageTriggersTools,
-  manageIndexesTool,
-  manageConstraintsTool,
-  manageRLSTool,
-  
-  // User & Security Management
-  manageUsersTool,
-  
-  // Query & Performance Management
-  manageQueryTool,
-  
-  // Data Operations (Enhancement Tools)
-  executeQueryTool,
-  executeMutationTool,
-  executeSqlTool,
-  
+  monitorDatabaseTool,
+
+  // Schema & Structure Inspection (read-only)
+  getSchemaInfoTool,
+  getConstraintsTool,
+  getIndexesTool,
+  analyzeIndexUsageTool,
+  getFunctionsTool,
+  getTriggersTool,
+  getEnumsTool,
+  getRLSPoliciesTool,
+
+  // User & Permission Inspection (read-only)
+  listUsersTool,
+  getUserPermissionsTool,
+
+  // Query & Performance Analysis (read-only)
+  executeQueryTool,       // SELECT only
+  explainQueryTool,       // EXPLAIN plans
+  getSlowQueriesTool,     // pg_stat_statements
+  getQueryStatsTool,      // query statistics
+
   // Documentation & Metadata
-  manageCommentsTool,
-  
-  // Data Migration & Monitoring
-  exportTableDataTool,
-  importTableDataTool,
-  copyBetweenDatabasesTool,
-  monitorDatabaseTool
+  manageCommentsTool,     // view/add comments on DB objects
+
+  // Safe Script Execution (additive DDL only)
+  // Built-in validation blocks DROP, TRUNCATE, DELETE, UPDATE, RENAME.
+  // Only allows CREATE IF NOT EXISTS, ADD COLUMN IF NOT EXISTS, etc.
+  // Supports dry-run mode (BEGIN/ROLLBACK) for testing scripts.
+  executeScriptTool,
 ];
 
 const serverInstance = new PostgreSQLServer(allTools); 
